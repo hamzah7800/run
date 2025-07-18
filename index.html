@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Jetpack Parkour Runner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #111; }
+    canvas { display: block; touch-action: none; }
+    #joystick, #jumpBtn, #jetpackBtn {
+      position: absolute; z-index: 10;
+    }
+    #joystick {
+      left: 20px; bottom: 20px;
+      width: 100px; height: 100px;
+    }
+    #jumpBtn, #jetpackBtn {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.2);
+      font-size: 20px;
+      color: white;
+      text-align: center;
+      line-height: 80px;
+    }
+    #jumpBtn { right: 120px; bottom: 30px; }
+    #jetpackBtn { right: 20px; bottom: 30px; }
+  </style>
+</head>
+<body>
+  <div id="joystick"></div>
+  <div id="jumpBtn">🦘</div>
+  <div id="jetpackBtn">🚀</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.9.0/dist/nipplejs.min.js"></script>
+
+  <script>
+    // Three.js scene setup
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({antialias: true});
+    renderer.setSize(innerWidth, innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Ground
+    const groundGeo = new THREE.BoxGeometry(50, 1, 50);
+    const groundMat = new THREE.MeshBasicMaterial({color: 0x3333ff});
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.position.y = -0.5;
+    scene.add(ground);
+
+    // Player
+    const playerGeo = new THREE.BoxGeometry(1, 2, 1);
+    const playerMat = new THREE.MeshBasicMaterial({color: 0x00ff00});
+    const player = new THREE.Mesh(playerGeo, playerMat);
+    player.position.y = 1;
+    scene.add(player);
+
+    camera.position.set(0, 5, 10);
+    camera.lookAt(player.position);
+
+    let velocity = new THREE.Vector3();
+    let onGround = true;
+    let jetpackFuel = 100;
+    let isJetpacking = false;
+
+    // Joystick control
+    let moveX = 0, moveZ = 0;
+    const joystick = nipplejs.create({
+      zone: document.getElementById('joystick'),
+      mode: 'static',
+      position: { left: '50px', bottom: '50px' },
+      color: 'white'
+    });
+    joystick.on('move', (evt, data) => {
+      const angle = data.angle.radian;
+      moveX = Math.cos(angle) * data.distance / 50;
+      moveZ = Math.sin(angle) * data.distance / 50;
+    });
+    joystick.on('end', () => { moveX = 0; moveZ = 0; });
+
+    // Jump and jetpack
+    document.getElementById('jumpBtn').addEventListener('touchstart', () => {
+      if (onGround) {
+        velocity.y = 0.15;
+        onGround = false;
+      }
+    });
+    document.getElementById('jetpackBtn').addEventListener('touchstart', () => {
+      isJetpacking = true;
+    });
+    document.getElementById('jetpackBtn').addEventListener('touchend', () => {
+      isJetpacking = false;
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Movement
+      player.position.x += moveX * 0.2;
+      player.position.z += moveZ * 0.2;
+
+      // Gravity & Jetpack
+      if (player.position.y > 1 || velocity.y > 0 || isJetpacking) {
+        if (isJetpacking && jetpackFuel > 0) {
+          velocity.y += 0.01;
+          jetpackFuel -= 0.5;
+        } else {
+          velocity.y -= 0.01;
+        }
+        player.position.y += velocity.y;
+        onGround = false;
+      }
+
+      if (player.position.y <= 1) {
+        player.position.y = 1;
+        velocity.y = 0;
+        onGround = true;
+        jetpackFuel = 100;
+      }
+
+      // Fall reset
+      if (player.position.y < -20) {
+        player.position.set(0, 5, 0);
+        velocity.set(0, 0, 0);
+        jetpackFuel = 100;
+      }
+
+      camera.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 5, player.position.z + 10), 0.1);
+      camera.lookAt(player.position);
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>
