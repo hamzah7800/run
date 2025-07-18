@@ -1,14 +1,25 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Jetpack Parkour Fixed</title>
+  <title>Offline FPS (iPad)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
-    html, body { margin: 0; overflow: hidden; background: #111; }
+    html, body { margin: 0; overflow: hidden; background: #000; }
     canvas { display: block; touch-action: none; }
 
-    .btn {
+    #joystickZone, #shootBtn {
       position: absolute;
+      z-index: 10;
+    }
+    #joystickZone {
+      bottom: 20px;
+      left: 20px;
+      width: 120px;
+      height: 120px;
+    }
+    #shootBtn {
+      bottom: 30px;
+      right: 30px;
       width: 80px;
       height: 80px;
       background: rgba(255,255,255,0.2);
@@ -17,162 +28,137 @@
       text-align: center;
       line-height: 80px;
       color: white;
-      user-select: none;
     }
-
-    #leftBtn { left: 20px; bottom: 30px; }
-    #rightBtn { left: 110px; bottom: 30px; }
-    #jumpBtn { right: 110px; bottom: 30px; }
-    #jetpackBtn { right: 20px; bottom: 30px; }
   </style>
 </head>
 <body>
 
-<div id="leftBtn" class="btn">⬅️</div>
-<div id="rightBtn" class="btn">➡️</div>
-<div id="jumpBtn" class="btn">🦘</div>
-<div id="jetpackBtn" class="btn">🚀</div>
+<div id="joystickZone"></div>
+<div id="shootBtn">🚀</div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/nipplejs@0.9.0/dist/nipplejs.min.js"></script>
+
 <script>
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+let scene = new THREE.Scene();
+let camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+let renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
 
-// Player
-const player = new THREE.Mesh(
-  new THREE.BoxGeometry(1, 2, 1),
-  new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+// Floor
+let floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(100, 100),
+  new THREE.MeshBasicMaterial({ color: 0x222222 })
 );
-player.position.y = 5;
-scene.add(player);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
 
-// Platforms
-const platforms = [];
-const platformSize = 6;
-const platformTypes = ['static', 'disappear', 'move'];
+// Player
+let player = {
+  velocity: new THREE.Vector3(),
+  direction: new THREE.Vector3(),
+  yaw: 0,
+  pitch: 0
+};
+camera.position.y = 2;
 
-function createPlatform(x, y, z, type) {
-  let color = 0x3333ff;
-  if (type === 'disappear') color = 0xff3333;
-  if (type === 'move') color = 0xffff33;
-
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(platformSize, 1, platformSize),
-    new THREE.MeshBasicMaterial({ color })
+// Enemies
+const enemies = [];
+for (let i = 0; i < 5; i++) {
+  let enemy = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 2, 1),
+    new THREE.MeshBasicMaterial({ color: 0xff0000 })
   );
-  mesh.position.set(x, y, z);
-  scene.add(mesh);
-
-  platforms.push({
-    mesh,
-    type,
-    startZ: z,
-    direction: 1,
-    touchedAt: null
-  });
+  enemy.position.set((Math.random() - 0.5) * 40, 1, (Math.random() - 0.5) * 40);
+  enemy.health = 100;
+  scene.add(enemy);
+  enemies.push(enemy);
 }
 
-// Generate path of platforms going forward in Z direction
-for (let i = 0; i < 30; i++) {
-  const z = i * 8;
-  const x = (Math.floor(Math.random() * 3) - 1) * 6;
-  const type = platformTypes[Math.floor(Math.random() * platformTypes.length)];
-  createPlatform(x, -0.5, z, type);
-}
+// Bullets
+const bullets = [];
 
-let velocity = new THREE.Vector3();
-let isJetpacking = false;
-let moveLeft = false;
-let moveRight = false;
-let onGround = false;
-let jetpackFuel = 100;
-
-// Movement buttons
-document.getElementById("leftBtn").addEventListener("touchstart", () => moveLeft = true);
-document.getElementById("leftBtn").addEventListener("touchend", () => moveLeft = false);
-document.getElementById("rightBtn").addEventListener("touchstart", () => moveRight = true);
-document.getElementById("rightBtn").addEventListener("touchend", () => moveRight = false);
-
-// Jump
-document.getElementById("jumpBtn").addEventListener("touchstart", () => {
-  if (onGround) {
-    velocity.y = 0.18;
-    onGround = false;
+// Touch look
+let lastTouch = null;
+document.addEventListener('touchmove', e => {
+  if (!lastTouch) {
+    lastTouch = e.touches[0];
+    return;
   }
+  const dx = e.touches[0].clientX - lastTouch.clientX;
+  const dy = e.touches[0].clientY - lastTouch.clientY;
+  player.yaw -= dx * 0.002;
+  player.pitch -= dy * 0.002;
+  player.pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, player.pitch));
+  lastTouch = e.touches[0];
+});
+document.addEventListener('touchend', () => lastTouch = null);
+
+// Joystick
+let moveX = 0, moveZ = 0;
+const joystick = nipplejs.create({
+  zone: document.getElementById('joystickZone'),
+  mode: 'static',
+  position: { left: '60px', bottom: '60px' },
+  color: 'white'
+});
+joystick.on('move', (evt, data) => {
+  const angle = data.angle.radian;
+  moveX = Math.cos(angle) * data.force;
+  moveZ = Math.sin(angle) * data.force;
+});
+joystick.on('end', () => { moveX = 0; moveZ = 0; });
+
+// Shoot
+document.getElementById('shootBtn').addEventListener('touchstart', () => {
+  const dir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(player.pitch, player.yaw));
+  const bullet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.1),
+    new THREE.MeshBasicMaterial({ color: 0xffff00 })
+  );
+  bullet.position.copy(camera.position);
+  bullet.velocity = dir.multiplyScalar(1);
+  bullets.push(bullet);
+  scene.add(bullet);
 });
 
-// Jetpack
-document.getElementById("jetpackBtn").addEventListener("touchstart", () => isJetpacking = true);
-document.getElementById("jetpackBtn").addEventListener("touchend", () => isJetpacking = false);
-
+// Game loop
 function animate() {
   requestAnimationFrame(animate);
 
-  // Horizontal input
-  if (moveLeft) player.position.x -= 0.1;
-  if (moveRight) player.position.x += 0.1;
+  // Move player
+  const forward = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
+  const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0)).negate();
+  const moveDir = new THREE.Vector3();
+  moveDir.addScaledVector(forward, -moveZ * 0.1);
+  moveDir.addScaledVector(right, -moveX * 0.1);
+  camera.position.add(moveDir);
 
-  // Gravity / Jetpack
-  if (isJetpacking && jetpackFuel > 0) {
-    velocity.y += 0.01;
-    jetpackFuel -= 0.5;
-  } else {
-    velocity.y -= 0.01;
-  }
-  player.position.y += velocity.y;
+  // Rotate view
+  camera.rotation.set(player.pitch, player.yaw, 0);
 
-  // Ground detection
-  onGround = false;
-  platforms.forEach(p => {
-    // Move platform
-    if (p.type === 'move') {
-      p.mesh.position.z += 0.05 * p.direction;
-      if (Math.abs(p.mesh.position.z - p.startZ) > 3) p.direction *= -1;
-    }
-
-    const dx = Math.abs(player.position.x - p.mesh.position.x);
-    const dz = Math.abs(player.position.z - p.mesh.position.z);
-    const dy = player.position.y - p.mesh.position.y;
-
-    if (dx < platformSize / 2 && dz < platformSize / 2 && dy >= 0 && dy < 1) {
-      player.position.y = p.mesh.position.y + 1;
-      velocity.y = 0;
-      onGround = true;
-      jetpackFuel = 100;
-
-      if (p.type === 'disappear' && p.touchedAt === null) {
-        p.touchedAt = performance.now();
+  // Move bullets
+  bullets.forEach((b, i) => {
+    b.position.add(b.velocity);
+    // Hit detection
+    enemies.forEach(enemy => {
+      if (enemy.health > 0 && b.position.distanceTo(enemy.position) < 1) {
+        enemy.health -= 50;
+        enemy.material.color.setHex(0xff8800);
+        scene.remove(b);
+        bullets.splice(i, 1);
       }
-    }
-
-    // Remove disappearing platform
-    if (p.type === 'disappear' && p.touchedAt !== null) {
-      const timeSinceTouch = performance.now() - p.touchedAt;
-      if (timeSinceTouch > 1000) {
-        scene.remove(p.mesh);
-        p.mesh.geometry.dispose();
-        p.mesh.material.dispose();
-        p.touchedAt = -1;
-      }
-    }
+    });
   });
 
-  // Fall reset
-  if (player.position.y < -10) {
-    player.position.set(0, 5, 0);
-    velocity.set(0, 0, 0);
-    jetpackFuel = 100;
-  }
-
-  // Auto move forward
-  player.position.z += 0.08;
-
-  // Camera follow
-  camera.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 5, player.position.z - 10), 0.1);
-  camera.lookAt(player.position);
+  // Remove dead enemies
+  enemies.forEach((e, i) => {
+    if (e.health <= 0) {
+      scene.remove(e);
+      enemies.splice(i, 1);
+    }
+  });
 
   renderer.render(scene, camera);
 }
