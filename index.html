@@ -1,12 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Jetpack Swipe Parkour</title>
+  <title>Jetpack Swipe Parkour - Platform Types</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
     html, body { margin: 0; overflow: hidden; background: #111; }
     canvas { display: block; touch-action: none; }
-
     #jetpackBtn {
       position: absolute;
       bottom: 30px;
@@ -25,9 +24,7 @@
 </head>
 <body>
   <div id="jetpackBtn">🚀</div>
-
   <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
-
   <script>
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
@@ -35,7 +32,6 @@
     renderer.setSize(innerWidth, innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    // Player
     const player = new THREE.Mesh(
       new THREE.BoxGeometry(1, 2, 1),
       new THREE.MeshBasicMaterial({ color: 0x00ff00 })
@@ -43,22 +39,42 @@
     player.position.y = 5;
     scene.add(player);
 
-    // Platforms
-    const platformMat = new THREE.MeshBasicMaterial({ color: 0x3333ff });
+    // Platform types
     const platforms = [];
-    for (let i = 0; i < 20; i++) {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(6, 1, 6), platformMat);
-      p.position.set(i * 8, -0.5, (Math.random() - 0.5) * 8);
-      scene.add(p);
-      platforms.push(p);
+    const platformSize = 6;
+    const types = ['static', 'disappear', 'move'];
+
+    function createPlatform(x, y, z, type) {
+      let color = 0x3333ff;
+      if (type === 'disappear') color = 0xff3333;
+      if (type === 'move') color = 0xffff33;
+
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(platformSize, 1, platformSize),
+        new THREE.MeshBasicMaterial({ color })
+      );
+      mesh.position.set(x, y, z);
+      scene.add(mesh);
+
+      platforms.push({
+        mesh,
+        type,
+        startZ: z,
+        direction: 1,
+        touchedAt: null
+      });
     }
 
-    camera.position.set(0, 5, 10);
-    camera.lookAt(player.position);
+    for (let i = 0; i < 30; i++) {
+      const x = i * 8;
+      const z = (Math.random() - 0.5) * 8;
+      const type = types[Math.floor(Math.random() * types.length)];
+      createPlatform(x, -0.5, z, type);
+    }
 
     let velocity = new THREE.Vector3();
-    let onGround = false;
     let isJetpacking = false;
+    let onGround = false;
     let jetpackFuel = 100;
 
     // Swipe Controls
@@ -71,13 +87,10 @@
     window.addEventListener('touchend', e => {
       const dx = e.changedTouches[0].clientX - touchStartX;
       const dy = e.changedTouches[0].clientY - touchStartY;
-
       if (Math.abs(dx) > Math.abs(dy)) {
-        // Horizontal swipe
-        if (dx > 30) player.position.x += 2; // swipe right
-        if (dx < -30) player.position.x -= 2; // swipe left
+        if (dx > 30) player.position.x += 2;
+        if (dx < -30) player.position.x -= 2;
       } else {
-        // Vertical swipe
         if (dy < -30 && onGround) {
           velocity.y = 0.18;
           onGround = false;
@@ -85,45 +98,62 @@
       }
     });
 
-    // Jetpack Button
-    const jetpackBtn = document.getElementById("jetpackBtn");
-    jetpackBtn.addEventListener("touchstart", () => isJetpacking = true);
-    jetpackBtn.addEventListener("touchend", () => isJetpacking = false);
+    document.getElementById("jetpackBtn").addEventListener("touchstart", () => isJetpacking = true);
+    document.getElementById("jetpackBtn").addEventListener("touchend", () => isJetpacking = false);
 
     function animate() {
       requestAnimationFrame(animate);
 
-      // Gravity & Jetpack
+      // Apply jetpack or gravity
       if (isJetpacking && jetpackFuel > 0) {
         velocity.y += 0.01;
         jetpackFuel -= 0.5;
       } else {
         velocity.y -= 0.01;
       }
-      player.position.y += velocity.y;
 
-      // Ground/platform collision
+      player.position.y += velocity.y;
       onGround = false;
-      for (let p of platforms) {
-        const dx = Math.abs(player.position.x - p.position.x);
-        const dz = Math.abs(player.position.z - p.position.z);
-        const dy = player.position.y - p.position.y;
-        if (dx < 3 && dz < 3 && dy >= 0 && dy < 1) {
-          player.position.y = p.position.y + 1;
+
+      // Check collision with platforms
+      platforms.forEach(p => {
+        if (p.type === 'move') {
+          p.mesh.position.z += 0.05 * p.direction;
+          if (Math.abs(p.mesh.position.z - p.startZ) > 3) p.direction *= -1;
+        }
+
+        const dx = Math.abs(player.position.x - p.mesh.position.x);
+        const dz = Math.abs(player.position.z - p.mesh.position.z);
+        const dy = player.position.y - p.mesh.position.y;
+
+        if (dx < platformSize / 2 && dz < platformSize / 2 && dy >= 0 && dy < 1) {
+          player.position.y = p.mesh.position.y + 1;
           velocity.y = 0;
           onGround = true;
           jetpackFuel = 100;
-        }
-      }
 
-      // Fall reset
+          if (p.type === 'disappear' && p.touchedAt === null) {
+            p.touchedAt = performance.now();
+          }
+        }
+
+        if (p.type === 'disappear' && p.touchedAt !== null) {
+          const timeSinceTouch = performance.now() - p.touchedAt;
+          if (timeSinceTouch > 1000) {
+            scene.remove(p.mesh);
+            p.mesh.geometry.dispose();
+            p.mesh.material.dispose();
+            p.touchedAt = -1; // never check again
+          }
+        }
+      });
+
       if (player.position.y < -10) {
         player.position.set(0, 5, 0);
         velocity.set(0, 0, 0);
         jetpackFuel = 100;
       }
 
-      // Camera follow
       camera.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 5, player.position.z + 10), 0.1);
       camera.lookAt(player.position);
 
