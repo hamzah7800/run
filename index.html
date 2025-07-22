@@ -1,169 +1,133 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Offline FPS (iPad)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nipple.js Running Game</title>
   <style>
-    html, body { margin: 0; overflow: hidden; background: #000; }
-    canvas { display: block; touch-action: none; }
-
-    #joystickZone, #shootBtn {
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #cce7ff;
+    }
+    canvas {
+      display: block;
+      background: #87ceeb;
+    }
+    #joystick-zone {
       position: absolute;
-      z-index: 10;
-    }
-    #joystickZone {
-      bottom: 20px;
-      left: 20px;
-      width: 120px;
-      height: 120px;
-    }
-    #shootBtn {
-      bottom: 30px;
-      right: 30px;
-      width: 80px;
-      height: 80px;
-      background: rgba(255,255,255,0.2);
-      border-radius: 50%;
-      font-size: 26px;
-      text-align: center;
-      line-height: 80px;
-      color: white;
+      bottom: 10px;
+      left: 10px;
+      width: 150px;
+      height: 150px;
     }
   </style>
 </head>
 <body>
+  <canvas id="gameCanvas"></canvas>
+  <div id="joystick-zone"></div>
 
-<div id="joystickZone"></div>
-<div id="shootBtn">🚀</div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.8.6/nipplejs.min.js"></script>
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/nipplejs@0.9.0/dist/nipplejs.min.js"></script>
+    const groundHeight = 100;
 
-<script>
-let scene = new THREE.Scene();
-let camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
-let renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(innerWidth, innerHeight);
-document.body.appendChild(renderer.domElement);
+    const player = {
+      x: 100,
+      y: canvas.height - groundHeight - 50,
+      width: 50,
+      height: 50,
+      color: 'red',
+      vy: 0,
+      vx: 0,
+      grounded: false
+    };
 
-// Floor
-let floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(100, 100),
-  new THREE.MeshBasicMaterial({ color: 0x222222 })
-);
-floor.rotation.x = -Math.PI / 2;
-scene.add(floor);
+    let keys = {
+      left: false,
+      right: false,
+      jump: false
+    };
 
-// Player
-let player = {
-  velocity: new THREE.Vector3(),
-  direction: new THREE.Vector3(),
-  yaw: 0,
-  pitch: 0
-};
-camera.position.y = 2;
+    const gravity = 1;
 
-// Enemies
-const enemies = [];
-for (let i = 0; i < 5; i++) {
-  let enemy = new THREE.Mesh(
-    new THREE.BoxGeometry(1, 2, 1),
-    new THREE.MeshBasicMaterial({ color: 0xff0000 })
-  );
-  enemy.position.set((Math.random() - 0.5) * 40, 1, (Math.random() - 0.5) * 40);
-  enemy.health = 100;
-  scene.add(enemy);
-  enemies.push(enemy);
-}
+    function drawPlayer() {
+      ctx.fillStyle = player.color;
+      ctx.fillRect(player.x, player.y, player.width, player.height);
+    }
 
-// Bullets
-const bullets = [];
+    function drawGround() {
+      ctx.fillStyle = 'green';
+      ctx.fillRect(0, canvas.height - groundHeight, canvas.width, groundHeight);
+    }
 
-// Touch look
-let lastTouch = null;
-document.addEventListener('touchmove', e => {
-  if (!lastTouch) {
-    lastTouch = e.touches[0];
-    return;
-  }
-  const dx = e.touches[0].clientX - lastTouch.clientX;
-  const dy = e.touches[0].clientY - lastTouch.clientY;
-  player.yaw -= dx * 0.002;
-  player.pitch -= dy * 0.002;
-  player.pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, player.pitch));
-  lastTouch = e.touches[0];
-});
-document.addEventListener('touchend', () => lastTouch = null);
+    function update() {
+      player.vy += gravity;
+      player.y += player.vy;
+      player.x += player.vx;
 
-// Joystick
-let moveX = 0, moveZ = 0;
-const joystick = nipplejs.create({
-  zone: document.getElementById('joystickZone'),
-  mode: 'static',
-  position: { left: '60px', bottom: '60px' },
-  color: 'white'
-});
-joystick.on('move', (evt, data) => {
-  const angle = data.angle.radian;
-  moveX = Math.cos(angle) * data.force;
-  moveZ = Math.sin(angle) * data.force;
-});
-joystick.on('end', () => { moveX = 0; moveZ = 0; });
+      if (player.y + player.height >= canvas.height - groundHeight) {
+        player.y = canvas.height - groundHeight - player.height;
+        player.vy = 0;
+        player.grounded = true;
+      } else {
+        player.grounded = false;
+      }
 
-// Shoot
-document.getElementById('shootBtn').addEventListener('touchstart', () => {
-  const dir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(player.pitch, player.yaw));
-  const bullet = new THREE.Mesh(
-    new THREE.SphereGeometry(0.1),
-    new THREE.MeshBasicMaterial({ color: 0xffff00 })
-  );
-  bullet.position.copy(camera.position);
-  bullet.velocity = dir.multiplyScalar(1);
-  bullets.push(bullet);
-  scene.add(bullet);
-});
+      // Move left/right
+      if (keys.left) player.vx = -5;
+      else if (keys.right) player.vx = 5;
+      else player.vx = 0;
+    }
 
-// Game loop
-function animate() {
-  requestAnimationFrame(animate);
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawGround();
+      drawPlayer();
+      update();
+      requestAnimationFrame(gameLoop);
+    }
 
-  // Move player
-  const forward = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
-  const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0)).negate();
-  const moveDir = new THREE.Vector3();
-  moveDir.addScaledVector(forward, -moveZ * 0.1);
-  moveDir.addScaledVector(right, -moveX * 0.1);
-  camera.position.add(moveDir);
+    gameLoop();
 
-  // Rotate view
-  camera.rotation.set(player.pitch, player.yaw, 0);
+    // Joystick
+    const joystick = nipplejs.create({
+      zone: document.getElementById('joystick-zone'),
+      mode: 'static',
+      position: { left: '50px', bottom: '50px' },
+      color: 'black'
+    });
 
-  // Move bullets
-  bullets.forEach((b, i) => {
-    b.position.add(b.velocity);
-    // Hit detection
-    enemies.forEach(enemy => {
-      if (enemy.health > 0 && b.position.distanceTo(enemy.position) < 1) {
-        enemy.health -= 50;
-        enemy.material.color.setHex(0xff8800);
-        scene.remove(b);
-        bullets.splice(i, 1);
+    joystick.on('move', function (evt, data) {
+      if (data.direction) {
+        if (data.direction.angle === 'left') keys.left = true;
+        else keys.left = false;
+
+        if (data.direction.angle === 'right') keys.right = true;
+        else keys.right = false;
+
+        if (data.direction.angle === 'up' && player.grounded) {
+          player.vy = -20;
+        }
       }
     });
-  });
 
-  // Remove dead enemies
-  enemies.forEach((e, i) => {
-    if (e.health <= 0) {
-      scene.remove(e);
-      enemies.splice(i, 1);
-    }
-  });
+    joystick.on('end', function () {
+      keys.left = false;
+      keys.right = false;
+    });
 
-  renderer.render(scene, camera);
-}
-
-animate();
-</script>
+    // Resize canvas on window resize
+    window.addEventListener('resize', () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    });
+  </script>
 </body>
 </html>
